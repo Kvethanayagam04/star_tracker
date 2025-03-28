@@ -20,6 +20,7 @@
 #include "main.h"
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -63,8 +64,8 @@ static void MX_LPUART1_UART_Init(void);
 static void MX_RTC_Init(void);
 static void MX_UCPD1_Init(void);
 static void MX_USB_PCD_Init(void);
-static int stepper_step_angle(float angle, int direction, int next_step);
-static void stepper_drive(int step);
+static int stepper1_step_angle(float angle, int next_step);
+static void stepper1_drive(int step);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -87,6 +88,7 @@ int next_step = 0;
 // Variables to store the parsed floats
 float angle1 = 0.0f, angle2 = 0.0f;
 volatile uint8_t motor_move_requested = 0;
+float current_angle1 = 0.0f, current_angle2 = 0.0f; // Current angles of the motors
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
@@ -175,7 +177,7 @@ int main(void)
     {
         if (motor_move_requested)
         {
-            next_step = stepper_step_angle(angle1, direction, next_step);
+            next_step = stepper1_step_angle(angle1, next_step);
             motor_move_requested = 0; // Reset flag
         }
         // Add other logic here
@@ -183,21 +185,27 @@ int main(void)
 }
 /* USER CODE END 3 */
 
-int stepper_step_angle(float angle, int direction, int next_step) // direction-> 0 for CW, 1 for CCW
+int stepper1_step_angle(float angle, int next_step) // direction-> 0 for CW, 1 for CCW
 {
-    float angleperstep = 0.087890625; // 360 = 4096 sequences
-    float total_angle = 0.0;
+    float angleperstep = 0.087890625;          // 360 = 4096 sequences
+    float angle_sign = current_angle1 - angle; // Assuming current_angle1 is the initial angle
+    // if angle_sign > 0 -> need to turn CW (0)
+    // if angle_sign < 0 -> need to turn CCW (1)
 
-    while (total_angle < angle)
+    int direction = (angle_sign > 0) ? 0 : 1;
+    float angle_to_turn = fabsf(angle_sign);
+
+    while (angle_to_turn > 0)
     {
         if (direction == 0) // for clockwise
         {
             for (int step = next_step; step <= 7; step++)
             {
-                if (total_angle < angle)
+                if (angle_to_turn > 0)
                 {
-                    total_angle += angleperstep;
-                    stepper_drive(step);
+                    angle_to_turn -= angleperstep;
+                    current_angle1 -= angleperstep;
+                    stepper1_drive(step);
                     if (step == 7)
                     {
                         next_step = 0;
@@ -217,10 +225,11 @@ int stepper_step_angle(float angle, int direction, int next_step) // direction->
         {
             for (int step = next_step; step >= 0; step--)
             {
-                if (total_angle < angle)
+                if (angle_to_turn > 0)
                 {
-                    total_angle += angleperstep;
-                    stepper_drive(step);
+                    angle_to_turn -= angleperstep;
+                    current_angle1 += angleperstep;
+                    stepper1_drive(step);
                     if (step == 0)
                     {
                         next_step = 7;
@@ -240,7 +249,7 @@ int stepper_step_angle(float angle, int direction, int next_step) // direction->
     return next_step;
 }
 
-void stepper_drive(int step)
+void stepper1_drive(int step)
 {
     // Define the GPIO pin states for each step
     const int gpio_states[8][4] = {
