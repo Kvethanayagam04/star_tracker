@@ -121,7 +121,7 @@ int main()
     // Get user input for star
     float *coordinates = get_coordinates();
     char message[50];
-    snprintf(message, sizeof(message), "%.2f, %.2f", coordinates[0], coordinates[1]);
+    snprintf(message, sizeof(message), "%.2f,%.2f", coordinates[0], coordinates[1]);
     DWORD bytesWritten;
     if (!WriteFile(hSerial, message, strlen(message), &bytesWritten, NULL))
     {
