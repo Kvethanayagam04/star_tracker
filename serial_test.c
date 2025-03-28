@@ -25,16 +25,7 @@ float *get_coordinates()
 
         // Run Python command and open a pipe to read its output
         sprintf(command,
-                "python3 -c \""
-                "from astroquery.simbad import Simbad\n"
-                "try:\n"
-                "    result = Simbad.query_object('%s')\n"
-                "    if result is None:\n"
-                "        print('ERROR')\n"
-                "    else:\n"
-                "        print(result['ra'][0], result['dec'][0])\n"
-                "except Exception:\n"
-                "    print('ERROR')\"",
+                "python -c \"from astroquery.simbad import Simbad; result = Simbad.query_object('%s'); print(result['ra'][0], result['dec'][0]) if result is not None else print('ERROR')\"",
                 star);
         fp = popen(command, "r");
 
@@ -118,11 +109,12 @@ int main()
         return 1;
     }
 
-    while (1) {
+    while (1)
+    {
         // Get user input for star
         float *coordinates = get_coordinates();
         char message[50];
-        snprintf(message, sizeof(message), "%.2f,%.2f", coordinates[0], coordinates[1]);
+        snprintf(message, sizeof(message), "%.2f,%.2f\n", coordinates[0], coordinates[1]);
         DWORD bytesWritten;
         if (!WriteFile(hSerial, message, strlen(message), &bytesWritten, NULL))
         {
