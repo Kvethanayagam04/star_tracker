@@ -1,40 +1,42 @@
+#include <windows.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <fcntl.h>
-#include <termios.h>
-#include <unistd.h>
 
-#define SERIAL_PORT "COM7"  // Change this to your serial port (e.g., COMx on Windows)
+#define SERIAL_PORT "COM7"  // Change this to your actual COM port
 
 int main() {
-    int serial_fd = open(SERIAL_PORT, O_RDWR | O_NOCTTY | O_NDELAY);
-    if (serial_fd == -1) {
-        perror("Error opening serial port");
+    HANDLE hSerial;
+    DCB dcbSerialParams = {0};
+    COMMTIMEOUTS timeouts = {0};
+    char buffer[256];
+    DWORD bytesRead;
+
+    // Open the serial port
+    hSerial = CreateFile(SERIAL_PORT, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    if (hSerial == INVALID_HANDLE_VALUE) {
+        printf("Error opening serial port\n");
         return 1;
     }
 
-    struct termios options;
-    tcgetattr(serial_fd, &options);
-    cfsetispeed(&options, B9600); // Set baud rate to 9600
-    cfsetospeed(&options, B9600);
-    options.c_cflag |= (CLOCAL | CREAD); // Enable receiver, ignore modem status lines
-    options.c_cflag &= ~PARENB; // No parity
-    options.c_cflag &= ~CSTOPB; // 1 stop bit
-    options.c_cflag &= ~CSIZE;
-    options.c_cflag |= CS8; // 8 data bits
-    tcsetattr(serial_fd, TCSANOW, &options);
-
-    char buffer[256];
-    while (1) {
-        int bytes_read = read(serial_fd, buffer, sizeof(buffer) - 1);
-        if (bytes_read > 0) {
-            buffer[bytes_read] = '\0';
-            printf("Received: %s", buffer);
-            fflush(stdout);
-        }
-        usleep(100000); // Sleep for 100ms to avoid high CPU usage
+    // Set up serial parameters
+    dcbSerialParams.DCBlength = sizeof(dcbSerialParams);
+    if (!GetCommState(hSerial, &dcbSerialParams)) {
+        printf("Error getting serial port state\n");
+        CloseHandle(hSerial);
+        return 1;
     }
 
-    close(serial_fd);
-    return 0;
+    dcbSerialParams.BaudRate = CBR_9600;  // Set baud rate to 9600
+    dcbSerialParams.ByteSize = 8;         // 8 data bits
+    dcbSerialParams.StopBits = ONESTOPBIT;
+    dcbSerialParams.Parity = NOPARITY;
+
+    if (!SetCommState(hSerial, &dcbSerialParams)) {
+        printf("Error setting serial port state\n");
+        CloseHandle(hSerial);
+        return 1;
+    }
+
+    // Set timeouts for reading
+    timeouts.ReadIntervalTimeout = 50;
+    timeouts.ReadTotalTimeoutConstant = 50;
 }
