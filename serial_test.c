@@ -118,30 +118,35 @@ int main()
         return 1;
     }
 
-    // Get user input for star
-    float *coordinates = get_coordinates();
-    char message[50];
-    snprintf(message, sizeof(message), "%.2f,%.2f", coordinates[0], coordinates[1]);
-    DWORD bytesWritten;
-    if (!WriteFile(hSerial, message, strlen(message), &bytesWritten, NULL))
-    {
-        printf("Error writing to serial port\n");
-        CloseHandle(hSerial);
-        return 1;
-    }
+    while (1) {
+        // Get user input for star
+        float *coordinates = get_coordinates();
+        char message[50];
+        snprintf(message, sizeof(message), "%.2f,%.2f", coordinates[0], coordinates[1]);
+        DWORD bytesWritten;
+        if (!WriteFile(hSerial, message, strlen(message), &bytesWritten, NULL))
+        {
+            printf("Error writing to serial port\n");
+            CloseHandle(hSerial);
+            return 1;
+        }
 
-    printf("Message sent: %s\n", message);
+        printf("Message sent: %s\n", message);
 
-    // Listen for a response
-    Sleep(1000); // Wait briefly to allow the board to respond
-    if (ReadFile(hSerial, buffer, sizeof(buffer) - 1, &bytesRead, NULL) && bytesRead > 0)
-    {
-        buffer[bytesRead] = '\0'; // Null-terminate the received string
-        printf("Received: %s\n", buffer);
-    }
-    else
-    {
-        printf("No response received or error reading from serial port\n");
+        // Listen for a response
+        Sleep(1000); // Wait briefly to allow the board to respond
+        if (ReadFile(hSerial, buffer, sizeof(buffer) - 1, &bytesRead, NULL) && bytesRead > 0)
+        {
+            buffer[bytesRead] = '\0'; // Null-terminate the received string
+            printf("Received: %s\n", buffer);
+        }
+        else
+        {
+            printf("No response received or error reading from serial port\n");
+        }
+
+        // Prompt for the next star after receiving a response
+        printf("Ready for the next star.\n");
     }
 
     // Close the serial port
