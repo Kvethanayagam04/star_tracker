@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-float* get_coordinates() {
+float* get_coordinates(const char* star) {
     char *coordinates = malloc(128 * sizeof(char));  // Buffer to store output
     int exit_flag = 0; // Flag to exit loop
     float *result = malloc(2 * sizeof(float));
@@ -13,11 +13,7 @@ float* get_coordinates() {
         }
 
         FILE *fp;          // File pointer for pipe
-        char star[128];     // Stores star name
         char command[512];  // Stores python command
-
-        printf("What star are you looking for: \n");
-        scanf("%s", star);
 
         // Run Python command and open a pipe to read its output
         sprintf(command, 
@@ -60,6 +56,6 @@ float* get_coordinates() {
 }
 
 int main() {
-    float* coordinates = get_coordinates();
+    float* coordinates = get_coordinates("polaris");
     printf("ra: %f, dec: %f\n", coordinates[0], coordinates[1]);
 }
