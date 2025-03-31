@@ -95,7 +95,8 @@ int next_step = 0;
 float angle1 = 0.0f, angle2 = 0.0f;
 volatile uint8_t motor_move_requested = 0;
 float current_angle1 = 0.0f, current_angle2 = 0.0f; // Current angles of the motors
-double cur_lat = 43.653225;
+double cur_long = -79.4099712;
+double jd_startup = 2460764.484005 + 0.00025;
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
@@ -187,21 +188,10 @@ int main(void)
         //		  motor_move_requested = 0;  // Reset flag
         //	  }
         // Add other logic here
-        testGetLST(cur_lat);
-        testGetGST();
-        testGetJulianDate();
-        HAL_Delay(1000);
     }
 }
 
-void testGetLST(double longitude)
-{
-    char response[50];
-    double lst = getLST(longitude);
-
-    sprintf(response, "LST: %.6f hours\r\n", lst);
-    HAL_UART_Transmit(&hlpuart1, (uint8_t *)response, strlen(response), HAL_MAX_DELAY);
-}
+// Function to get the Julian Date from RTC
 // Function to get the Julian Date from RTC
 double getJulianDate()
 {
@@ -259,6 +249,7 @@ double getGST()
 {
     double JD = getJulianDate();
     double D = JD - 2451545.0;
+    double T = D / 36525;
     double GST = 18.697374558 + 24.06570982441908 * D;
     GST = fmod(GST, 24.0);
     if (GST < 0)
@@ -591,6 +582,8 @@ static void MX_RTC_Init(void)
     /* USER CODE END RTC_Init 0 */
 
     RTC_PrivilegeStateTypeDef privilegeState = {0};
+    RTC_TimeTypeDef sTime = {0};
+    RTC_DateTypeDef sDate = {0};
 
     /* USER CODE BEGIN RTC_Init 1 */
 
@@ -616,6 +609,31 @@ static void MX_RTC_Init(void)
     privilegeState.backupRegisterStartZone2 = RTC_BKP_DR0;
     privilegeState.backupRegisterStartZone3 = RTC_BKP_DR0;
     if (HAL_RTCEx_PrivilegeModeSet(&hrtc, &privilegeState) != HAL_OK)
+    {
+        Error_Handler();
+    }
+
+    /* USER CODE BEGIN Check_RTC_BKUP */
+
+    /* USER CODE END Check_RTC_BKUP */
+
+    /** Initialize RTC and set the Time and Date
+     */
+    sTime.Hours = 0x18 + 0x4;
+    sTime.Minutes = 0x44;
+    sTime.Seconds = 0x0;
+    sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+    sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+    if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    sDate.WeekDay = RTC_WEEKDAY_SATURDAY;
+    sDate.Month = RTC_MONTH_MARCH;
+    sDate.Date = 0x31;
+    sDate.Year = 0x25;
+
+    if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
     {
         Error_Handler();
     }
@@ -780,27 +798,6 @@ void Error_Handler(void)
     /* USER CODE END Error_Handler_Debug */
 }
 
-void testGetJulianDate()
-{
-    char response[50];                   // Buffer to store output string
-    double julianDate = getJulianDate(); // Call the function
-
-    // Convert double to string
-    sprintf(response, "Julian Date: %.6f\r\n", julianDate);
-
-    // Send result over UART
-    HAL_UART_Transmit(&hlpuart1, (uint8_t *)response, strlen(response), HAL_MAX_DELAY);
-}
-
-void testGetGST()
-{
-    char response[50];     // Buffer for UART transmission
-    double gst = getGST(); // Call function
-
-    sprintf(response, "GST: %.6f hours\r\n", gst);
-    HAL_UART_Transmit(&hlpuart1, (uint8_t *)response, strlen(response), HAL_MAX_DELAY);
-}
-
 /** TEST FUNCTIONS
  *
 void testGetJulianDate()
@@ -823,6 +820,25 @@ void testGetGST()
     sprintf(response, "GST: %.6f hours\r\n", gst);
     HAL_UART_Transmit(&hlpuart1, (uint8_t *)response, strlen(response), HAL_MAX_DELAY);
 }
+
+void testGetLST(double longitude)
+{
+    char response[50];
+    double lst = getLST(longitude);
+
+    sprintf(response, "LST: %.6f hours\r\n", lst);
+    HAL_UART_Transmit(&hlpuart1, (uint8_t *)response, strlen(response), HAL_MAX_DELAY);
+}
+
+void testGetHourAngle(double RA, double longitude)
+{
+    char response[50];
+    double ha = getHourAngle(RA, longitude);
+
+    sprintf(response, "Hour Angle: %.6f hours\r\n", ha);
+    HAL_UART_Transmit(&hlpuart1, (uint8_t *)response, strlen(response), HAL_MAX_DELAY);
+}
+
  *
  */
 
