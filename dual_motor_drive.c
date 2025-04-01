@@ -88,6 +88,53 @@ static void MX_SPI1_Init(void);
  * @brief  The application entry point.
  * @retval int
  */
+
+int direction = 1;
+int next_step1 = 0;
+int next_step2 = 0;
+float angle1 = 0.0f, angle2 = 0.0f;
+volatile uint8_t motor_move_requested1 = 0, motor_move_requested2 = 0;
+float current_angle1 = 0.0f, current_angle2 = 0.0f; // Current angles of the motors
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == LPUART1)
+    { // Check if the interrupt is from LPUART1
+        if (rxChar == '\r' || rxChar == '\n')
+        {                             // If Enter is pressed
+            rxBuffer[counter] = '\0'; // Null-terminate the string
+
+            // Parse the received string
+            if (sscanf(rxBuffer, "%f,%f", &angle1, &angle2) == 2)
+            {                             // Ensure two floats were read
+                motor_move_requested1 = 1; // Set flag
+                motor_move_requested2 = 1;
+                char response[BUFFER_SIZE];
+                snprintf(response, BUFFER_SIZE, "\r\nParsed Values: %.2f, %.2f\r\n", angle1, angle2);
+
+                // Send parsed values back over UART
+                HAL_UART_Transmit(&hlpuart1, (uint8_t *)response, strlen(response), HAL_MAX_DELAY);
+            }
+            else
+            {
+                // Error in parsing
+                char error_msg[] = "\r\nParsing Error! Ensure format: float,float\r\n";
+                HAL_UART_Transmit(&hlpuart1, (uint8_t *)error_msg, sizeof(error_msg) - 1, HAL_MAX_DELAY);
+            }
+
+            counter = 0; // Reset buffer for the next input
+        }
+        else
+        {
+            if (counter < BUFFER_SIZE - 1)
+            { // Prevent buffer overflow
+                rxBuffer[counter++] = rxChar;
+            }
+        }
+        HAL_UART_Receive_IT(&hlpuart1, &rxChar, 1); // Restart UART reception
+    }
+}
+
 int main(void)
 {
 
@@ -130,11 +177,24 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    while (1)
+    {
+        if (motor_move_requested1 && angle1 != current_angle1)
+        {
+            next_step1 = stepper_step_angle(angle1, next_step1);
+            motor_move_requested1 = 0; // Reset flag
+        }
+        if (motor_move_requested2 && angle2 != current_angle2)
+        {
+            next_step2 = stepper_step_angle(angle2, next_step2);
+            motor_move_requested = 0; // Reset flag
+        }
+        // Add other logic here
+    }
 }
 /* USER CODE END 3 */
-}
 
-int stepper1_step_angle(float angle, int next_step, int motor) // direction-> 0 for CW, 1 for CCW
+int stepper_step_angle(float angle, int next_step, int motor) // direction-> 0 for CW, 1 for CCW
 {
     float angleperstep = 0.087890625;          // 360 = 4096 sequences
     float angle_sign = current_angle1 - angle; // Assuming current_angle1 is the initial angle
@@ -154,10 +214,14 @@ int stepper1_step_angle(float angle, int next_step, int motor) // direction-> 0 
                 {
                     angle_to_turn -= angleperstep;
                     current_angle1 -= angleperstep;
-                    if (motor = 1)
+                    if (motor == 1)
                     {
+                        stepper1_drive(step);
                     }
-                    stepper1_drive(step);
+                    if (motor == 2)
+                    {
+                        stepper2_drive(step);
+                    }
                     if (step == 7)
                     {
                         next_step = 0;
@@ -181,7 +245,14 @@ int stepper1_step_angle(float angle, int next_step, int motor) // direction-> 0 
                 {
                     angle_to_turn -= angleperstep;
                     current_angle1 += angleperstep;
-                    stepper1_drive(step);
+                    if (motor == 1)
+                    {
+                        stepper1_drive(step);
+                    }
+                    if (motor == 2)
+                    {
+                        stepper2_drive(step);
+                    }
                     if (step == 0)
                     {
                         next_step = 7;
