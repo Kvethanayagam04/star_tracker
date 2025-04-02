@@ -18,6 +18,9 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include <stdio.h>
+#include <string.h>
+#include <math.h>
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -32,17 +35,7 @@ extern SPI_HandleTypeDef hspi1; // SPI1 Handle
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-// SPI Read Register
-uint8_t SPI_Read_Register(uint8_t reg)
-{
-    uint8_t txData = reg | 0x80; // Set MSB to indicate Read
-    uint8_t rxData = 0;
-    CS_LOW();
-    HAL_SPI_Transmit(&hspi1, &txData, 1, SPI_TIMEOUT);
-    HAL_SPI_Receive(&hspi1, &rxData, 1, SPI_TIMEOUT);
-    CS_HIGH();
-    return rxData;
-}
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -75,8 +68,13 @@ static void MX_RTC_Init(void);
 static void MX_UCPD1_Init(void);
 static void MX_USB_PCD_Init(void);
 static void MX_SPI1_Init(void);
-/* USER CODE BEGIN PFP */
+int stepper_step_angle(float angle, int next_step, int motor);
 
+/* USER CODE BEGIN PFP */
+/* USER CODE END Includes */
+static float filtered_x = 0.0f;
+static float filtered_y = 0.0f;
+static float filtered_z = 0.0f;
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -88,8 +86,26 @@ static void MX_SPI1_Init(void);
  * @brief  The application entry point.
  * @retval int
  */
+#define BUFFER_SIZE 64 // Define a suitable buffer size
+#define WHO_AM_I 0x0F
+#define CTRL_REG1 0x20
+#define OUT_X_L 0x28
+#define OUT_X_H 0x29
+#define OUT_Y_L 0x2A
+#define OUT_Y_H 0x2B
+#define OUT_Z_L 0x2C
+#define OUT_Z_H 0x2D
+#define SENSITIVITY_245DPS 8.75 // Scale factor (mg/dps)
 
-int direction = 1;
+#define SPI_TIMEOUT 100
+#define ALPHA 0.1
+
+#define CS_LOW() HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET)
+#define CS_HIGH() HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET)
+
+char rxBuffer[BUFFER_SIZE]; // Buffer for storing received command
+uint8_t rxChar;             // Variable for receiving single characters
+uint8_t counter = 0;
 int next_step1 = 0;
 int next_step2 = 0;
 float angle1 = 0.0f, angle2 = 0.0f;
@@ -106,7 +122,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
             // Parse the received string
             if (sscanf(rxBuffer, "%f,%f", &angle1, &angle2) == 2)
-            {                             // Ensure two floats were read
+            {                              // Ensure two floats were read
                 motor_move_requested1 = 1; // Set flag
                 motor_move_requested2 = 1;
                 char response[BUFFER_SIZE];
@@ -168,36 +184,74 @@ int main(void)
     MX_USB_PCD_Init();
     MX_SPI1_Init();
     /* USER CODE BEGIN 2 */
-    SPI_Write_Register(CTRL_REG1, 0x6F); // PD=1, ODR=200Hz, XYZ enabled
 
     /* USER CODE END 2 */
 
     /* Infinite loop */
     /* USER CODE BEGIN WHILE */
     /* USER CODE END WHILE */
+    char msg[] = "Waiting for input... (Press Enter to send)\r\n";
+    HAL_UART_Transmit(&hlpuart1, (uint8_t *)msg, strlen(msg), HAL_MAX_DELAY);
+
+    // Enable UART interrupt reception (VERY IMPORTANT)
+    HAL_UART_Receive_IT(&hlpuart1, &rxChar, 1);
 
     /* USER CODE BEGIN 3 */
     while (1)
     {
         if (motor_move_requested1 && angle1 != current_angle1)
         {
-            next_step1 = stepper_step_angle(angle1, next_step1);
+            next_step1 = stepper_step_angle(angle1, next_step1, 1);
             motor_move_requested1 = 0; // Reset flag
         }
         if (motor_move_requested2 && angle2 != current_angle2)
         {
-            next_step2 = stepper_step_angle(angle2, next_step2);
-            motor_move_requested = 0; // Reset flag
+            next_step2 = stepper_step_angle(angle2, next_step2, 2);
+            motor_move_requested2 = 0; // Reset flag
         }
         // Add other logic here
     }
 }
 /* USER CODE END 3 */
+// SPI Read Register
+uint8_t SPI_Read_Register(uint8_t reg)
+{
+    uint8_t txData = reg | 0x80; // Set MSB to indicate Read
+    uint8_t rxData = 0;
+    CS_LOW();
+    HAL_SPI_Transmit(&hspi1, &txData, 1, SPI_TIMEOUT);
+    HAL_SPI_Receive(&hspi1, &rxData, 1, SPI_TIMEOUT);
+    CS_HIGH();
+    return rxData;
+}
 
+void SPI_Write_Register(uint8_t reg, uint8_t value)
+{
+    uint8_t data[2] = {reg, value};
+    CS_LOW();
+    HAL_SPI_Transmit(&hspi1, data, 2, SPI_TIMEOUT);
+    CS_HIGH();
+}
+// Read X, Y, Z values (16-bit signed integers)
+void SPI_Read_AngularRate(int16_t *gyro_x, int16_t *gyro_y, int16_t *gyro_z)
+{
+    uint8_t rawData[6];
+
+    CS_LOW();
+    uint8_t txData = OUT_X_L | 0xC0; // Read multiple (MSB=1, auto-increment=1)
+    HAL_SPI_Transmit(&hspi1, &txData, 1, SPI_TIMEOUT);
+    HAL_SPI_Receive(&hspi1, rawData, 6, SPI_TIMEOUT);
+    CS_HIGH();
+
+    // Convert bytes to signed 16-bit values
+    *gyro_x = (int16_t)((rawData[1] << 8) | rawData[0]);
+    *gyro_y = (int16_t)((rawData[3] << 8) | rawData[2]);
+    *gyro_z = (int16_t)((rawData[5] << 8) | rawData[4]);
+}
 int stepper_step_angle(float angle, int next_step, int motor) // direction-> 0 for CW, 1 for CCW
 {
-    float angleperstep = 0.087890625;          // 360 = 4096 sequences
-    float angle_sign = current_angle1 - angle; // Assuming current_angle1 is the initial angle
+    float angleperstep = 0.087890625;                                                  // 360 = 4096 sequences
+    float angle_sign = (motor == 1) ? current_angle1 - angle : current_angle2 - angle; // Assuming current_angle1 is the initial angle
     // if angle_sign > 0 -> need to turn CW (0)
     // if angle_sign < 0 -> need to turn CCW (1)
 
@@ -213,22 +267,31 @@ int stepper_step_angle(float angle, int next_step, int motor) // direction-> 0 f
                 if (angle_to_turn > 0)
                 {
                     angle_to_turn -= angleperstep;
-                    current_angle1 -= angleperstep;
                     if (motor == 1)
                     {
                         stepper1_drive(step);
+                        current_angle1 -= angleperstep;
+                        if (step == 7)
+                        {
+                            next_step = 0;
+                        }
+                        else
+                        {
+                            next_step = step + 1;
+                        }
                     }
-                    if (motor == 2)
+                    else if (motor == 2)
                     {
                         stepper2_drive(step);
-                    }
-                    if (step == 7)
-                    {
-                        next_step = 0;
-                    }
-                    else
-                    {
-                        next_step = step + 1;
+                        current_angle2 -= angleperstep;
+                        if (step == 7)
+                        {
+                            next_step = 0;
+                        }
+                        else
+                        {
+                            next_step = step + 1;
+                        }
                     }
                 }
                 else
@@ -244,22 +307,31 @@ int stepper_step_angle(float angle, int next_step, int motor) // direction-> 0 f
                 if (angle_to_turn > 0)
                 {
                     angle_to_turn -= angleperstep;
-                    current_angle1 += angleperstep;
                     if (motor == 1)
                     {
                         stepper1_drive(step);
+                        current_angle1 += angleperstep;
+                        if (step == 0)
+                        {
+                            next_step = 7;
+                        }
+                        else
+                        {
+                            next_step = step - 1;
+                        }
                     }
                     if (motor == 2)
                     {
                         stepper2_drive(step);
-                    }
-                    if (step == 0)
-                    {
-                        next_step = 7;
-                    }
-                    else
-                    {
-                        next_step = step - 1;
+                        current_angle2 += angleperstep;
+                        if (step == 0)
+                        {
+                            next_step = 7;
+                        }
+                        else
+                        {
+                            next_step = step - 1;
+                        }
                     }
                 }
                 else
@@ -290,7 +362,7 @@ void stepper2_drive(int step)
     HAL_GPIO_WritePin(GPIOD, GPIO_PIN_7, gpio_states[step][0] ? GPIO_PIN_SET : GPIO_PIN_RESET);
     HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, gpio_states[step][1] ? GPIO_PIN_SET : GPIO_PIN_RESET);
     HAL_GPIO_WritePin(GPIOD, GPIO_PIN_5, gpio_states[step][2] ? GPIO_PIN_SET : GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(GPIOBD, GPIO_PIN_4, gpio_states[step][3] ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_4, gpio_states[step][3] ? GPIO_PIN_SET : GPIO_PIN_RESET);
 
     HAL_Delay(1); // Delay for step timing
 }
@@ -705,11 +777,6 @@ static void MX_USB_PCD_Init(void)
     /* USER CODE END USB_Init 2 */
 }
 
-/**
- * @brief GPIO Initialization Function
- * @param None
- * @retval None
- */
 static void MX_GPIO_Init(void)
 {
     GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -779,6 +846,12 @@ static void MX_GPIO_Init(void)
     /* USER CODE BEGIN MX_GPIO_Init_2 */
     /* USER CODE END MX_GPIO_Init_2 */
 }
+
+/**
+ * @brief GPIO Initialization Function
+ * @param None
+ * @retval None
+ */
 
 /* USER CODE BEGIN 4 */
 
