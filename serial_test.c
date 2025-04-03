@@ -21,7 +21,10 @@ float *get_coordinates()
         char command[512]; // Stores python command
 
         printf("What star are you looking for: \n");
-        scanf("%s", star);
+        fgets(star, sizeof(star), stdin);
+
+        // Remove newline character from input
+        star[strcspn(star, "\n")] = '\0';
 
         // Run Python command and open a pipe to read its output
         sprintf(command,
@@ -40,9 +43,14 @@ float *get_coordinates()
             else
             {
                 int ret = sscanf(coordinates, "%f %f", &result[0], &result[1]);
-                if (ret == 2)
+                if (ret == 2 && result[1] >= 0)
                 {
                     exit_flag = 1;
+                }
+                else if (ret == 2){
+                    // means dec < 0
+                    printf("Star name %s is out of visibility range, please try again\n", star);
+                    break; // Exit loop on error
                 }
                 else
                 {
